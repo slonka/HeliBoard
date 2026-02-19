@@ -82,6 +82,9 @@ import helium314.keyboard.latin.utils.SubtypeSettings;
 import helium314.keyboard.latin.utils.SubtypeState;
 import helium314.keyboard.latin.utils.ToolbarMode;
 import helium314.keyboard.settings.SettingsActivity2;
+import helium314.keyboard.whisper.WhisperManager;
+import helium314.keyboard.whisper.WhisperRecorder;
+import helium314.keyboard.whisper.WhisperVoiceInputView;
 import kotlin.Unit;
 
 import java.io.FileDescriptor;
@@ -132,6 +135,12 @@ public class LatinIME extends InputMethodService implements
     private View mInputView;
     private InsetsOutlineProvider mInsetsUpdater;
     private SuggestionStripView mSuggestionStripView;
+
+    // Whisper voice input
+    private WhisperRecorder mWhisperRecorder;
+    private WhisperVoiceInputView mWhisperVoiceView;
+    private android.os.Handler mTimerHandler;
+    private int mRecordingSeconds;
 
     private RichInputMethodManager mRichImm;
     final KeyboardSwitcher mKeyboardSwitcher;
@@ -1368,7 +1377,17 @@ public class LatinIME extends InputMethodService implements
     // completely replace #onCodeInput.
     public void onEvent(@NonNull final Event event) {
         if (KeyCode.VOICE_INPUT == event.getKeyCode()) {
-            mRichImm.switchToShortcutIme(this);
+            if (WhisperManager.getInstance().isModelLoaded()) {
+                startWhisperVoiceInput();
+            } else {
+                // No model loaded — open settings to download one,
+                // fall back to shortcut IME if available
+                final Intent intent = new Intent(this, helium314.keyboard.whisper.WhisperPermissionActivity.class);
+                intent.putExtra("show_setup", true);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            }
+            return;
         }
         final InputTransaction completeInputTransaction =
                 mInputLogic.onCodeInput(mSettings.getCurrent(), event,
@@ -1376,6 +1395,88 @@ public class LatinIME extends InputMethodService implements
                         mKeyboardSwitcher.getCurrentKeyboardScript(), mHandler);
         updateStateAfterInputTransaction(completeInputTransaction);
         mKeyboardSwitcher.onEvent(event, getCurrentAutoCapsState(), getCurrentRecapitalizeState());
+    }
+
+    private void startWhisperVoiceInput() {
+        // Check RECORD_AUDIO permission
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            final Intent intent = new Intent(this, helium314.keyboard.whisper.WhisperPermissionActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+            return;
+        }
+
+        // Show voice input overlay in suggestion strip
+        mWhisperRecorder = new WhisperRecorder();
+        mWhisperVoiceView = new WhisperVoiceInputView(this);
+        mRecordingSeconds = 0;
+        mTimerHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+
+        mWhisperVoiceView.setOnStopClicked(this::stopWhisperRecordingAndTranscribe);
+        mWhisperVoiceView.setOnCancelClicked(this::cancelWhisperRecording);
+
+        if (hasSuggestionStripView()) {
+            mSuggestionStripView.setExternalSuggestionView(mWhisperVoiceView, false);
+        }
+
+        mWhisperVoiceView.showRecording();
+        mWhisperRecorder.startRecording();
+
+        // Start timer
+        final Runnable timerRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (mWhisperRecorder != null && mWhisperRecorder.isRecording()) {
+                    mRecordingSeconds++;
+                    if (mWhisperVoiceView != null) {
+                        mWhisperVoiceView.updateTimer(mRecordingSeconds);
+                    }
+                    mTimerHandler.postDelayed(this, 1000);
+                }
+            }
+        };
+        mTimerHandler.postDelayed(timerRunnable, 1000);
+    }
+
+    private void stopWhisperRecordingAndTranscribe() {
+        if (mWhisperRecorder == null || !mWhisperRecorder.isRecording()) return;
+
+        final float[] audioData = mWhisperRecorder.stopRecording();
+        if (mTimerHandler != null) mTimerHandler.removeCallbacksAndMessages(null);
+
+        if (mWhisperVoiceView != null) {
+            mWhisperVoiceView.showTranscribing();
+        }
+
+        // Run transcription in background via callback
+        final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        WhisperManager.getInstance().transcribeAsync(audioData, null, result -> {
+            mainHandler.post(() -> {
+                if (result != null && !result.isEmpty()) {
+                    mInputLogic.mConnection.commitText(result, 1);
+                }
+                finishWhisperVoiceInput();
+            });
+            return Unit.INSTANCE;
+        });
+    }
+
+    private void cancelWhisperRecording() {
+        if (mWhisperRecorder != null) {
+            mWhisperRecorder.cancel();
+        }
+        if (mTimerHandler != null) mTimerHandler.removeCallbacksAndMessages(null);
+        finishWhisperVoiceInput();
+    }
+
+    private void finishWhisperVoiceInput() {
+        mWhisperRecorder = null;
+        mWhisperVoiceView = null;
+        if (hasSuggestionStripView()) {
+            mSuggestionStripView.setSuggestions(SuggestedWords.getEmptyInstance(),
+                    mRichImm.getCurrentSubtype().isRtlSubtype());
+        }
     }
 
     public void onTextInput(final String rawText) {
