@@ -13,12 +13,14 @@ class Database private constructor(context: Context, name: String = NAME) : SQLi
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // nothing yet
+        if (oldVersion < 2) {
+            db.execSQL(ClipboardDao.MIGRATION_1_2)
+        }
     }
 
     companion object {
         private val TAG = Database::class.java.simpleName
-        private const val VERSION = 1
+        private const val VERSION = 2
         const val NAME = "heliboard.db"
         private var instance: Database? = null
         fun getInstance(context: Context): Database {

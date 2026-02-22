@@ -6,6 +6,7 @@
 
 package helium314.keyboard.keyboard;
 
+import android.net.Uri;
 import android.view.KeyEvent;
 
 import helium314.keyboard.event.HapticEvent;
@@ -66,6 +67,13 @@ public interface KeyboardActionListener {
      * @param text the string of characters to be registered.
      */
     void onTextInput(String text);
+
+    /**
+     * Sends a URI (e.g. an image) to the listener for committing to the editor.
+     *
+     * @param uri the content URI to be committed.
+     */
+    void onUriInput(Uri uri);
 
     /**
      * Called when user started batch input.
@@ -139,6 +147,8 @@ public interface KeyboardActionListener {
         public void onCodeInput(int primaryCode, int x, int y, boolean isKeyRepeat) {}
         @Override
         public void onTextInput(String text) {}
+        @Override
+        public void onUriInput(Uri uri) {}
         @Override
         public void onStartBatchInput() {}
         @Override

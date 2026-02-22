@@ -4,6 +4,7 @@ package helium314.keyboard.keyboard.clipboard
 
 import android.annotation.SuppressLint
 import android.graphics.Typeface
+import android.net.Uri
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -51,6 +52,7 @@ class ClipboardAdapter(
 
         private val pinnedIconView: ImageView
         private val contentView: TextView
+        private val imageView: ImageView
 
         init {
             view.apply {
@@ -70,6 +72,7 @@ class ClipboardAdapter(
                 setTextColor(itemTextColor)
                 setTextSize(TypedValue.COMPLEX_UNIT_PX, itemTextSize)
             }
+            imageView = view.findViewById(R.id.clipboard_entry_image)
             clipboardLayoutParams.setItemProperties(view)
             val colors = Settings.getValues().mColors
             colors.setColor(pinnedIconView, ColorType.CLIPBOARD_PIN)
@@ -77,8 +80,17 @@ class ClipboardAdapter(
 
         fun setContent(historyEntry: ClipboardHistoryEntry?) {
             itemView.tag = historyEntry?.id
-            contentView.text = historyEntry?.text?.take(1000) // truncate displayed text for performance reasons
             pinnedIconView.visibility = if (historyEntry?.isPinned == true) View.VISIBLE else View.GONE
+            if (historyEntry?.imageUri != null) {
+                contentView.visibility = View.GONE
+                imageView.visibility = View.VISIBLE
+                imageView.setImageURI(Uri.parse(historyEntry.imageUri))
+            } else {
+                contentView.visibility = View.VISIBLE
+                imageView.visibility = View.GONE
+                imageView.setImageURI(null)
+                contentView.text = historyEntry?.text?.take(1000)
+            }
         }
 
         @SuppressLint("ClickableViewAccessibility")

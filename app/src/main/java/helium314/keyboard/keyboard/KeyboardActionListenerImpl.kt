@@ -124,6 +124,8 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
 
     override fun onTextInput(text: String?) = latinIME.onTextInput(text)
 
+    override fun onUriInput(uri: android.net.Uri?) { if (uri != null) latinIME.onUriInput(uri) }
+
     override fun onStartBatchInput() = latinIME.onStartBatchInput()
 
     override fun onUpdateBatchInput(batchPointers: InputPointers?) = latinIME.onUpdateBatchInput(batchPointers)

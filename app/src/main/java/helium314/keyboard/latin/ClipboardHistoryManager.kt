@@ -52,13 +52,27 @@ class ClipboardHistoryManager(
 
     private fun fetchPrimaryClip() {
         val clipData = clipboardManager.primaryClip ?: return
-        if (clipData.itemCount == 0 || clipData.description?.hasMimeType("text/*") == false) return
-        clipData.getItemAt(0)?.let { clipItem ->
-            val timeStamp = ClipboardManagerCompat.getClipTimestamp(clipData)
-            val content = clipItem.coerceToText(latinIME)
-            if (TextUtils.isEmpty(content)) return
-            clipboardDao?.addClip(timeStamp, false, content.toString())
+        if (clipData.itemCount == 0) return
+        val clipItem = clipData.getItemAt(0) ?: return
+        val timeStamp = ClipboardManagerCompat.getClipTimestamp(clipData)
+
+        // Check for image content
+        val description = clipData.description
+        val hasImage = description != null && (description.hasMimeType("image/*"))
+        if (hasImage && clipItem.uri != null) {
+            val mimeType = description?.getMimeType(0) ?: "image/*"
+            val imageUri = ClipboardImageProvider.saveImage(latinIME, clipItem.uri, mimeType)
+            if (imageUri != null) {
+                clipboardDao?.addClip(timeStamp, false, "", imageUri)
+                return
+            }
         }
+
+        // Fall back to text content
+        if (description?.hasMimeType("text/*") == false) return
+        val content = clipItem.coerceToText(latinIME)
+        if (TextUtils.isEmpty(content)) return
+        clipboardDao?.addClip(timeStamp, false, content.toString())
     }
 
     fun toggleClipPinned(id: Long) {
@@ -69,13 +83,16 @@ class ClipboardHistoryManager(
         clipboardDao?.clearNonPinned()
         ClipboardManagerCompat.clearPrimaryClip(clipboardManager)
         removeClipboardSuggestion()
+        cleanupOrphanedImages()
     }
 
     fun canRemove(index: Int) = clipboardDao?.isPinned(index) == false
 
     fun removeEntry(index: Int) {
-        if (canRemove(index))
-            clipboardDao?.deleteClipAt(index)
+        if (canRemove(index)) {
+            val entry = clipboardDao?.deleteClipAt(index)
+            entry?.imageUri?.let { ClipboardImageProvider.deleteImage(latinIME, it) }
+        }
     }
 
     fun sortHistoryEntries() {
@@ -169,6 +186,11 @@ class ClipboardHistoryManager(
             latinIME.mHandler.postResumeSuggestions(false)
         }
         csv.isGone = true
+    }
+
+    private fun cleanupOrphanedImages() {
+        val activeUris = clipboardDao?.getAllImageUris() ?: return
+        ClipboardImageProvider.cleanupOrphaned(latinIME, activeUris)
     }
 
     companion object {
